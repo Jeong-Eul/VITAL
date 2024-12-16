@@ -1,0 +1,17 @@
+Dataset: P19------------------
+Learning Rate: 0.001
+D_ff: 32
+num heads: 8
+LLM: GPT2
+d_llm: 768
+
+
+Batch Size = 16, Learning Rate = 0.001, Epoch = 50, Early stopping patience = 4
+
+Testing: AUROC = 91.27 | AUPRC = 61.00 | Accuracy = 90.56
+Testing: AUROC = 88.04 | AUPRC = 56.90 | Accuracy = 91.37
+Testing: AUROC = 89.93 | AUPRC = 54.75 | Accuracy = 88.41
+Testing: AUROC = 89.21 | AUPRC = 56.92 | Accuracy = 90.88
+Testing: AUROC = 86.61 | AUPRC = 55.83 | Accuracy = 86.19
+----
+Testing: AUROC = 89.01±1.59 | AUPRC = 57.08±2.12 | Accuracy = 89.48±1.93
