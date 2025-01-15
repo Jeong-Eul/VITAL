@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import time
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix, average_precision_score, precision_score, recall_score, f1_score
-from model_ehr import *
+from model_ehr_auxiliary import *
 from utils import *
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
@@ -46,7 +46,7 @@ if __name__ == '__main__':
 
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='P19', choices=['P12', 'P19', 'eICU', 'PAM']) #
+    parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAM']) #
     parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
     parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
     parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
@@ -63,11 +63,12 @@ if __name__ == '__main__':
     parser.add_argument('--n_heads', type=int, default=1, help='num of heads')
     parser.add_argument('--d_ff', type=int, default=32, help='dimension of fcn')
     parser.add_argument('--dropout', type=float, default=0.1, help='dropout')
-    parser.add_argument('--llm_model', type=str, default='LLAMA', help='LLM model') # LLAMA, GPT2, BERT, MAMBA
+    parser.add_argument('--llm_model', type=str, default='GPT2', help='LLM model') # LLAMA, GPT2, BERT, MAMBA
     parser.add_argument('--llm_dim', type=int, default='768', help='LLM model dimension')# LLama7b:4096; GPT2-small:768; BERT-base:768, MAMBA:768
     parser.add_argument('--llm_layers', type=int, default=12)
     
-
+    # wandb = False
+    
     args, unknown = parser.parse_known_args()
     
     torch.manual_seed(1)
@@ -77,7 +78,7 @@ if __name__ == '__main__':
 
     arch = 'ehrtimellm'
     model_path = '../models/'
-    args.batch_size = 16
+    args.batch_size = 128
     dataset = args.dataset
     print('Dataset used: ', dataset)
 
@@ -108,7 +109,7 @@ if __name__ == '__main__':
     sensor_wise_mask = False
 
     for missing_ratio in missing_ratios:
-        num_epochs = 50
+        num_epochs = 20
         learning_rate = 0.001
 
         if dataset == 'P12':
@@ -144,9 +145,9 @@ if __name__ == '__main__':
         precision_arr = np.zeros((n_splits, n_runs))
         recall_arr = np.zeros((n_splits, n_runs))
         F1_arr = np.zeros((n_splits, n_runs))
-        for k in range(n_splits):
-        # custom = [4]
-        # for k in custom:
+        # for k in range(n_splits):
+        custom = [2]
+        for k in custom:
             split_idx = k + 1
             
             print('Split id: %d' % split_idx)
@@ -163,7 +164,7 @@ if __name__ == '__main__':
             if wandb:
                 # wandb.login(key=str('0126f71b25a3ecd1e32ed0a83047073475ee9cea'))
                 # config = wandb.config
-                wandb.init(name=f'demo_plus'+ str(split_idx),
+                wandb.init(name=f'P19-EXP'+ str(split_idx),
                            project='EHRTimeLLM-refined', 
                            config={'Learning Rate':learning_rate, "LLM": args.llm_model, "d_ff": args.d_ff, "d_model": args.d_model,"Heads": args.n_heads})
 
@@ -369,10 +370,11 @@ if __name__ == '__main__':
                                                                                                             auc_val * 100))
                             if wandb:
                                 wandb.log({"val_loss": val_loss.item(), "val_auprc": aupr_val, "val_auroc": auc_val})
-
+                                
+                            accelerator.wait_for_everyone()
                             scheduler.step(aupr_val)
                             if auc_val > best_auc_val:
-                                accelerator.wait_for_everyone()
+                                
                                 best_auc_val = auc_val
                                 print(
                                     "**[S] Epoch %d, aupr_val: %.4f, auc_val: %.4f **" % (
@@ -380,15 +382,13 @@ if __name__ == '__main__':
                                 patience = 0
                                 torch.save(model.state_dict(), model_path + arch + '_' + str(split_idx) + '.pt')
                             else:
-                                accelerator.wait_for_everyone()
                                 patience += 1
-                                if patience >= 4:
+                                if patience > 8:
                                     print('early stopping triggered')
                                     break
                                 
                             torch.cuda.empty_cache()
                             torch.cuda.ipc_collect()
-                accelerator.wait_for_everyone()
                 end = time.time()
                 time_elapsed = end - start
                 print('Total Time elapsed: %.3f mins' % (time_elapsed / 60.0))
@@ -403,40 +403,13 @@ if __name__ == '__main__':
                     out_test = evaluate(accelerator, model, Ptest_tensor, Ptest_time_tensor, Ptest_static_tensor, test_paddimg_mask, n_classes=args.n_classes, static=static_info).numpy()
                         
                     ypred = np.argmax(out_test, axis=1)
-                    # denoms = np.sum(np.exp(out_test), axis=1).reshape((-1, 1))
-                    # probs = np.exp(out_test) / (denoms +0.00001)
-                    
-                    # nan_positions = []
-                    # for i in range(probs.shape[0]):  # 첫 번째 차원 기준으로 반복
-                    #     if torch.isnan(torch.tensor(probs[i])).any():
-                    #         nan_positions.append(i)
-
-                    # # NaN이 있을 경우에만 출력
-                    # if nan_positions:
-                    #     print(f"probs NaN이 있는 첫 번째 차원의 위치: {nan_positions}")
-                    #     print(out_test[nan_positions[0]])
-                    #     print(out_test[nan_positions])
-                        
+                  
                     out_test_max = np.max(out_test, axis=1, keepdims=True)
-                    out_test_stable = out_test - out_test_max  # 입력값 안정화
+                    out_test_stable = out_test - out_test_max 
 
                     denoms = np.sum(np.exp(out_test_stable), axis=1).reshape((-1, 1))
-                    probs = np.exp(out_test_stable) / (denoms + 0.00001)  # softmax 계산
+                    probs = np.exp(out_test_stable) / (denoms + 0.00001)
 
-                    nan_positions = []
-                    for i in range(probs.shape[0]):  # 첫 번째 차원 기준으로 반복
-                        if torch.isnan(torch.tensor(probs[i])).any():
-                            nan_positions.append(i)
-
-                    # NaN이 있을 경우에만 출력
-                    if nan_positions:
-                        print(f"probs NaN이 있는 첫 번째 차원의 위치: {nan_positions}")
-                        print(out_test[nan_positions[0]])
-                    
-                    # NaN이 있는지 확인
-                    if np.isnan(probs).any():
-                        print(probs)
-                        raise ValueError("probs 배열에 NaN 값이 있습니다. 계산을 중단합니다.")
 
                     acc = np.sum(ytest.ravel() == ypred.ravel()) / ytest.shape[0]
 
