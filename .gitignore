@@ -1,6 +1,7 @@
 /Visualization.ipynb
 /tokenlearner_feature_mixing.ipynb
 /P19data
-/models
 /P12data
 /code/wandb
+/models/P12_checkpoint/checkpoint
+/models/P19_checkpoint/checkpoint
