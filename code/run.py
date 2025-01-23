@@ -1,7 +1,7 @@
 """Here is an initial version of the proposed EHRTimeLLM model. The scripts will be further refined in the future, after paper acceptance. """
 
 import os
-import wandb
+# import wandb
 import numpy as np
 import torch
 import torch.nn as nn
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     parser.add_argument('--llm_dim', type=int, default='768', help='LLM model dimension')# LLama7b:4096; GPT2-small:768; BERT-base:768, MAMBA:768
     parser.add_argument('--llm_layers', type=int, default=12)
     
-    # wandb = False
+    wandb = False
     
     args, unknown = parser.parse_known_args()
     
@@ -146,7 +146,7 @@ if __name__ == '__main__':
         recall_arr = np.zeros((n_splits, n_runs))
         F1_arr = np.zeros((n_splits, n_runs))
         # for k in range(n_splits):
-        custom = [2]
+        custom = [3, 4]
         for k in custom:
             split_idx = k + 1
             
@@ -383,7 +383,7 @@ if __name__ == '__main__':
                                 torch.save(model.state_dict(), model_path + arch + '_' + str(split_idx) + '.pt')
                             else:
                                 patience += 1
-                                if patience > 8:
+                                if patience >= 3:
                                     print('early stopping triggered')
                                     break
                                 

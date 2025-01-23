@@ -281,7 +281,7 @@ def random_sample(idx_0, idx_1, B, replace=False):
     return idx
 
 
-def evaluate(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, batch_size=16, n_classes=2, static=1):
+def evaluate(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, batch_size=128, n_classes=2, static=1):
     model.eval()
     P_tensor = P_tensor[:, :, :int(P_tensor.shape[2] / 2)].to(accelerator.device)
     P_time_tensor = P_time_tensor.to(accelerator.device) 
@@ -323,7 +323,7 @@ def evaluate(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask,
     return out
 
 
-def evaluate_standard(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, batch_size=16, n_classes=2, static=1):
+def evaluate_standard(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, batch_size=128, n_classes=2, static=1):
     model.eval()
     P_tensor = P_tensor[:, :, :int(P_tensor.shape[2] / 2)].to(accelerator.device)
     P_time_tensor = P_time_tensor.to(accelerator.device) 

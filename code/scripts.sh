@@ -11,13 +11,13 @@ llama_layers=12
 
 master_port=1041
 num_process=2
-d_model=16
+d_model=32
 d_ff=32
 
 comment='EHRTimeLLM'
 
 accelerate launch --config_file /home/DAHS2/.cache/huggingface/accelerate/default_config.yaml --num_processes 2 run.py \
-  --dataset P19 \
+  --dataset P12 \
   --n_heads 8 \
   --llm_model GPT2 \
   --d_model $d_model \
