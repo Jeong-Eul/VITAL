@@ -1,0 +1,21 @@
+Dataset: P12------------------
+Learning Rate: 0.001
+D_ff: 32
+d_model: 32
+num heads: 6
+LLM: GPT2
+d_llm: 768
+
+
+Batch Size = 128, Learning Rate = 0.001, Epoch = 20, Early stopping patience = 3
+
+Testing: AUROC = 85.11 | AUPRC = 51.82 | Accuracy = 75.48
+Testing: AUROC = 88.25 | AUPRC = 62.12 | Accuracy = 74.31
+Testing: AUROC = 83.57 | AUPRC = 49.61 | Accuracy = 74.06
+Testing: AUROC = 86.23 | AUPRC = 51.57 | Accuracy = 74.15
+Testing: AUROC = 85.14 | AUPRC = 54.29 | Accuracy = 79.90
+
+AUPRC: 53.9 +/- 4.4
+AUROC: 85.7 +/- 1.5
+
+----
