@@ -1,6 +1,7 @@
 """Here is an initial version of the proposed EHRTimeLLM model. The scripts will be further refined in the future, after paper acceptance. """
 
 import os
+import random
 # import wandb
 import numpy as np
 import torch
@@ -8,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import time
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix, average_precision_score, precision_score, recall_score, f1_score
-from model_ehr_auxiliary import *
+from model_ehr import *
 from utils import *
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
@@ -78,7 +79,7 @@ if __name__ == '__main__':
 
     arch = 'ehrtimellm'
     model_path = '../models/'
-    args.batch_size = 128
+    args.batch_size = 32
     dataset = args.dataset
     print('Dataset used: ', dataset)
 
@@ -95,6 +96,23 @@ if __name__ == '__main__':
     feature_removal_level = args.feature_removal_level  # 'set', 'sample'
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=4, deepspeed_plugin=None)
+    
+    def one_hot(y_):
+        y_ = y_.reshape(len(y_))
+
+        y_ = [int(x) for x in y_]
+        n_values = np.max(y_) + 1
+        return np.eye(n_values)[np.array(y_, dtype=np.int32)]
+    
+    def split_randomly(num_var, seed=2):
+        random.seed(seed)
+        numbers = list(range(num_var))
+        random.shuffle(numbers)
+
+        list1 = numbers[:8]
+        list2 = numbers[8:]
+
+        return list1, list2
 
     print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
         args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level)
@@ -115,15 +133,22 @@ if __name__ == '__main__':
         if dataset == 'P12':
             args.d_static = 9
             args.enc_in = 36
-            static_info = 1
+            args.static_info = 1
+            args.vital = [8, 14, 21, 22, 30] # 순서대로 DBP, HR, NDBP, NMAP, SBP |  NSBP, MAP, RR은 EDA 결과 lab 만큼 희소해서 제외
+            args.lab = list(set(np.arange(args.enc_in)) - set(args.vital))
+            
         elif dataset == 'P19':
             args.d_static = 6
             args.enc_in = 34
-            static_info = 1
+            args.static_info = 1
+            args.vital = [0, 1, 3, 4, 5]
+            args.lab = list(set(np.arange(args.enc_in)) - set(args.vital))
+            
         elif dataset == 'PAM':
             args.d_static = 0
             args.enc_in = 17
-            static_info = None
+            args.static_info = None
+            args.vital, args.lab = split_randomly(args.enc_in, seed=42)
 
         if dataset == 'P12':
             args.seq_len = 215
@@ -146,7 +171,7 @@ if __name__ == '__main__':
         recall_arr = np.zeros((n_splits, n_runs))
         F1_arr = np.zeros((n_splits, n_runs))
         # for k in range(n_splits):
-        custom = [3, 4]
+        custom = [0, 1, 2, 3, 4]
         for k in custom:
             split_idx = k + 1
             
@@ -159,7 +184,7 @@ if __name__ == '__main__':
             elif dataset == 'P19':
                 split_path = '/splits/phy19_split' + str(split_idx) + '_new.npy'
             elif dataset == 'PAM':
-                split_path = '/splits/PAM_split_' + str(split_idx) + '.npy'
+                split_path = '/splits/PAMAP2_split_' + str(split_idx) + '.npy'
                 
             if wandb:
                 # wandb.login(key=str('0126f71b25a3ecd1e32ed0a83047073475ee9cea'))
@@ -202,9 +227,9 @@ if __name__ == '__main__':
                 Ptrain_static_tensor = np.zeros((len(Ptrain), D))
 
                 mf, stdf = getStats(Ptrain)
-                Ptrain_tensor, Ptrain_static_tensor, Ptrain_time_tensor, ytrain_tensor = tensorize_normalize_other(Ptrain, ytrain, mf, stdf)
-                Pval_tensor, Pval_static_tensor, Pval_time_tensor, yval_tensor = tensorize_normalize_other(Pval, yval, mf, stdf)
-                Ptest_tensor, Ptest_static_tensor, Ptest_time_tensor, ytest_tensor = tensorize_normalize_other(Ptest, ytest, mf, stdf)
+                Ptrain_tensor, Ptrain_static_tensor, Ptrain_time_tensor, ytrain_tensor, train_paddimg_mask = tensorize_normalize_other(Ptrain, ytrain, mf, stdf)
+                Pval_tensor, Pval_static_tensor, Pval_time_tensor, yval_tensor, valid_paddimg_mask = tensorize_normalize_other(Pval, yval, mf, stdf)
+                Ptest_tensor, Ptest_static_tensor, Ptest_time_tensor, ytest_tensor, test_paddimg_mask = tensorize_normalize_other(Ptest, ytest, mf, stdf)
 
             # remove part of variables in validation and test set
             if missing_ratio > 0:
@@ -236,18 +261,12 @@ if __name__ == '__main__':
             for m in range(n_runs):
                 print('- - Run %d - -' % (m + 1))
 
-                if dataset == 'P12' or dataset == 'P19':
-                    model = Ehrtimellm(args)
+                model = Ehrtimellm(args)
      
-                    trained_parameters = []
-                    for p in model.parameters():
-                        if p.requires_grad is True:
-                            trained_parameters.append(p)
-                            
-                # elif dataset == 'PAM':
-                #     # model = Raindrop_v2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
-                #     #                     d_static, MAX, 0.5, aggreg, n_classes, global_structure,
-                #     #                     sensor_wise_mask=sensor_wise_mask, static=False)
+                trained_parameters = []
+                for p in model.parameters():
+                    if p.requires_grad is True:
+                        trained_parameters.append(p)
 
                 criterion = torch.nn.CrossEntropyLoss().to(accelerator.device)
                 optimizer = torch.optim.Adam(trained_parameters, lr=learning_rate)
@@ -312,8 +331,9 @@ if __name__ == '__main__':
                             P, Ptime, Pstatic, y, mask = Ptrain_tensor[idx, :, :int(Ptrain_tensor.shape[2] / 2)].to(accelerator.device), Ptrain_time_tensor[:, idx].to(accelerator.device), \
                                                 Ptrain_static_tensor[idx].to(accelerator.device), ytrain_tensor[idx].to(accelerator.device), train_paddimg_mask[idx].to(accelerator.device)
                         elif dataset == 'PAM':
-                            P, Ptime, Pstatic, y = Ptrain_tensor[:, idx, :].to(accelerator.device), Ptrain_time_tensor[:, idx].to(accelerator.device), \
-                                                None, ytrain_tensor[idx].to(accelerator.device)
+                            
+                            P, Ptime, Pstatic, y, mask = Ptrain_tensor[idx, :, :int(Ptrain_tensor.shape[2] / 2)].to(accelerator.device), Ptrain_time_tensor[:, idx].to(accelerator.device), \
+                                                None, ytrain_tensor[idx].to(accelerator.device), train_paddimg_mask[idx].to(accelerator.device)
 
                         real_time = torch.sum(Ptime > 0, dim=0)
                         
@@ -328,6 +348,7 @@ if __name__ == '__main__':
                     end_epoch = time.time()
                     accelerator.wait_for_everyone()
                     
+                
                     if dataset == 'P12' or dataset == 'P19' :
                         train_probs = torch.squeeze(torch.sigmoid(outputs))
                         train_probs = train_probs.cpu().detach().numpy()
@@ -338,8 +359,35 @@ if __name__ == '__main__':
                         train_probs = torch.squeeze(nn.functional.softmax(outputs, dim=1))
                         train_probs = train_probs.cpu().detach().numpy()
                         train_y = y.cpu().detach().numpy()
-                        train_auroc = roc_auc_score(one_hot(train_y), train_probs)
-                        train_auprc = average_precision_score(one_hot(train_y), train_probs)
+                        
+                        try:
+                            if len(np.unique(train_y)) == 1:
+                                print("Only one class present in train_y. Skipping AUC calculation.")
+                                train_auroc = float(0.5)
+                            else:
+                                try:
+                                    train_auroc = roc_auc_score(one_hot(train_y), train_probs)
+                                except: 
+                                    train_auroc = float(0.5)  # 기본값 설정
+                        except ValueError as e:
+                            print("Error in ROC AUC calculation:", e)
+                            train_auroc = float(0.5)
+                            
+                        try:
+                            if len(np.unique(train_y)) == 1:
+                                print("Only one class present in train_y. Skipping AUPRC calculation.")
+                                train_auprc = float(0.5)
+                            else:
+                                try:
+                                    train_auprc = average_precision_score(one_hot(train_y), train_probs)
+                                except:
+                                    train_auroc = float(0.5)  # 기본값 설정
+                        except ValueError as e:
+                            print("Error in AUPRC calculation:", e)
+                            train_auprc = float(0.5)
+                        
+                        # train_auroc = roc_auc_score(one_hot(train_y), train_probs)
+                        # train_auprc = average_precision_score(one_hot(train_y), train_probs)
 
                     if wandb:
                         wandb.log({"train_loss": loss.item(), "train_auprc": train_auprc, "train_auroc": train_auroc})
@@ -351,7 +399,7 @@ if __name__ == '__main__':
                     model.eval()
                     if epoch == 0 or epoch % 1 == 0:
                         with torch.no_grad():
-                            out_val = evaluate_standard(accelerator, model, Pval_tensor, Pval_time_tensor, Pval_static_tensor, valid_paddimg_mask, static=static_info)
+                            out_val = evaluate_standard(accelerator, model, Pval_tensor, Pval_time_tensor, Pval_static_tensor, valid_paddimg_mask, batch_size=args.batch_size, n_classes=args.n_classes, static=args.static_info)
                             out_val = torch.squeeze(torch.sigmoid(out_val))
                             out_val = out_val.detach().cpu().numpy()
 
@@ -400,7 +448,7 @@ if __name__ == '__main__':
                 print('Inference ready')
                 model.eval()
                 with torch.no_grad():
-                    out_test = evaluate(accelerator, model, Ptest_tensor, Ptest_time_tensor, Ptest_static_tensor, test_paddimg_mask, n_classes=args.n_classes, static=static_info).numpy()
+                    out_test = evaluate(accelerator, model, Ptest_tensor, Ptest_time_tensor, Ptest_static_tensor, test_paddimg_mask, batch_size=args.batch_size, n_classes=args.n_classes, static=args.static_info).numpy()
                         
                     ypred = np.argmax(out_test, axis=1)
                   
@@ -419,9 +467,9 @@ if __name__ == '__main__':
                     elif dataset == 'PAM':
                         auc = roc_auc_score(one_hot(ytest), probs)
                         aupr = average_precision_score(one_hot(ytest), probs)
-                        precision = precision_score(ytest, ypred, average='macro', )
-                        recall = recall_score(ytest, ypred, average='macro', )
-                        F1 = f1_score(ytest, ypred, average='macro', )
+                        precision = precision_score(ytest, ypred, average='macro')
+                        recall = recall_score(ytest, ypred, average='macro')
+                        F1 = f1_score(ytest, ypred, average='macro')
                         print('Testing: Precision = %.2f | Recall = %.2f | F1 = %.2f' % (precision * 100, recall * 100, F1 * 100))
 
                     print('Testing: AUROC = %.2f | AUPRC = %.2f | Accuracy = %.2f' % (auc * 100, aupr * 100, acc * 100))

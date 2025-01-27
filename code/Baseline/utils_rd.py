@@ -161,24 +161,18 @@ def getStats(P_tensor):
     return mf, stdf
 
 
-def mask_normalize(P_tensor, mf, stdf, lengths):
+def mask_normalize(P_tensor, mf, stdf):
     """ Normalize time series variables. Missing ones are set to zero after normalization. """
     N, T, F = P_tensor.shape
     Pf = P_tensor.transpose((2, 0, 1)).reshape(F, -1)
     M = 1*(P_tensor > 0) + 0*(P_tensor <= 0)
     M_3D = M.transpose((2, 0, 1)).reshape(F, -1)
-    M_null = np.zeros((N, T, F))
-    for i in range(N):
-        length = lengths[i]  
-
-        M_null[i, :length, :] = 1 
-        M_null[i, :length, :][P_tensor[i, :length, :] == 0] = np.nan
     for f in range(F):
         Pf[f] = (Pf[f]-mf[f])/(stdf[f]+1e-18)
     Pf = Pf * M_3D
     Pnorm_tensor = Pf.reshape((F, N, T)).transpose((1, 2, 0))
     Pfinal_tensor = np.concatenate([Pnorm_tensor, M], axis=2)
-    return Pfinal_tensor, M_null
+    return Pfinal_tensor
 
 
 def getStats_static(P_tensor, dataset='P12'):
@@ -198,7 +192,7 @@ def getStats_static(P_tensor, dataset='P12'):
         bool_categorical = [1] * 397 + [0] * 2
 
     for s in range(S):
-        if bool_categorical[s] == 0:  # if not categorical
+        if bool_categorical == 0:  # if not categorical
             vals_s = Ps[s, :]
             vals_s = vals_s[vals_s > 0]
             ms[s] = np.mean(vals_s)
@@ -231,41 +225,36 @@ def tensorize_normalize(P, y, mf, stdf, ms, ss):
     P_tensor = np.zeros((len(P), T, F))
     P_time = np.zeros((len(P), T, 1))
     P_static_tensor = np.zeros((len(P), D))
-    lengths = np.zeros(len(P), dtype=int)
     for i in range(len(P)):
         P_tensor[i] = P[i]['arr']
         P_time[i] = P[i]['time']
         P_static_tensor[i] = P[i]['extended_static']
-        lengths[i] = P[i]['length']
-    P_tensor, M_null = mask_normalize(P_tensor, mf, stdf, lengths)
+    P_tensor = mask_normalize(P_tensor, mf, stdf)
     P_tensor = torch.Tensor(P_tensor)
-    M_null = torch.Tensor(M_null)
-    
+
     P_time = torch.Tensor(P_time) / 60.0  # convert mins to hours
     P_static_tensor = mask_normalize_static(P_static_tensor, ms, ss)
     P_static_tensor = torch.Tensor(P_static_tensor)
 
     y_tensor = y
     y_tensor = torch.Tensor(y_tensor[:, 0]).type(torch.LongTensor)
-    return P_tensor, P_static_tensor, P_time, y_tensor, M_null
+    return P_tensor, P_static_tensor, P_time, y_tensor
+
 
 def tensorize_normalize_other(P, y, mf, stdf):
     T, F = P[0].shape
     P_time = np.zeros((len(P), T, 1))
-    lengths = np.zeros(len(P), dtype=int)
     for i in range(len(P)):
         tim = torch.linspace(0, T, T).reshape(-1, 1)
         P_time[i] = tim
-        lengths[i] = T
-    P_tensor, M_null = mask_normalize(P, mf, stdf, lengths)
-    M_null = torch.Tensor(M_null)
+    P_tensor = mask_normalize(P, mf, stdf)
     P_tensor = torch.Tensor(P_tensor)
 
     P_time = torch.Tensor(P_time) / 60.0
 
     y_tensor = y
     y_tensor = torch.Tensor(y_tensor[:, 0]).type(torch.LongTensor)
-    return P_tensor, None, P_time, y_tensor, M_null
+    return P_tensor, None, P_time, y_tensor
 
 
 def masked_softmax(A, epsilon=0.000000001):
@@ -284,80 +273,48 @@ def random_sample(idx_0, idx_1, B, replace=False):
     return idx
 
 
-def evaluate(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, batch_size=30, n_classes=2, static=1):
+def evaluate(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=16, n_classes=2, static=1):
     model.eval()
-    P_tensor = P_tensor[:, :, :int(P_tensor.shape[2] / 2)].to(accelerator.device)
-    P_time_tensor = P_time_tensor.to(accelerator.device) 
-    mask = mask.to(accelerator.device)
+    P_tensor = P_tensor.cuda()
+    P_time_tensor = P_time_tensor.cuda()
     if static is None:
         Pstatic = None
     else:
-        P_static_tensor = P_static_tensor.to(accelerator.device)
+        P_static_tensor = P_static_tensor.cuda()
         N, Fs = P_static_tensor.shape
 
-    N, T, Ff = P_tensor.shape
+    T, N, Ff = P_tensor.shape
     n_batches, rem = N // batch_size, N % batch_size
     out = torch.zeros(N, n_classes)
     start = 0
     for i in range(n_batches):
-        P = P_tensor[start:start + batch_size, :, :]
-        M = mask[start:start + batch_size, :, :]
+        P = P_tensor[:, start:start + batch_size, :]
         Ptime = P_time_tensor[:, start:start + batch_size]
         if P_static_tensor is not None:
             Pstatic = P_static_tensor[start:start + batch_size]
-        real_time = torch.sum(Ptime > 0, dim=0)
-        middleoutput = model.forward(P, Ptime.permute(1, 0).unsqueeze(-1), real_time, Pstatic, M)
+        lengths = torch.sum(Ptime > 0, dim=0)
+        middleoutput, _, _ = model.forward(P, Pstatic, Ptime, lengths)
         out[start:start + batch_size] = middleoutput.detach().cpu()
         start += batch_size
     if rem > 0:
-        P = P_tensor[start:start + rem, :, :]
-        M = mask[start:start + rem, :, :]
+        P = P_tensor[:, start:start + rem, :]
         Ptime = P_time_tensor[:, start:start + rem]
         if P_static_tensor is not None:
             Pstatic = P_static_tensor[start:start + batch_size]
-        # 데이터가 유효한지 확인
-        if P.shape[0] == 0 or M.shape[0] == 0:
-            print('dd')
-            return out  # 빈 배치가 있는 경우 이미 처리한 결과 반환    
-        
-        real_time = torch.sum(Ptime > 0, dim=0)
-        whatever = model.forward(P, Ptime.permute(1, 0).unsqueeze(-1), real_time, Pstatic, M)
+        lengths = torch.sum(Ptime > 0, dim=0)
+        whatever, _, _ = model.forward(P, Pstatic, Ptime, lengths)
         out[start:start + rem] = whatever.detach().cpu()
     return out
 
 
-def evaluate_standard(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, batch_size=30, n_classes=2, static=1):
-    model.eval()
-    P_tensor = P_tensor[:, :, :int(P_tensor.shape[2] / 2)].to(accelerator.device)
-    P_time_tensor = P_time_tensor.to(accelerator.device) 
-    mask = mask.to(accelerator.device)
+def evaluate_standard(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=16, n_classes=2, static=1):
+    P_tensor = P_tensor.cuda()
+    P_time_tensor = P_time_tensor.cuda()
     if static is None:
-        Pstatic = None
+        P_static_tensor = None
     else:
-        P_static_tensor = P_static_tensor.to(accelerator.device)
-        N, Fs = P_static_tensor.shape
+        P_static_tensor = P_static_tensor.cuda()
 
-    N, T, Ff = P_tensor.shape
-    n_batches, rem = N // batch_size, N % batch_size
-    out = torch.zeros(N, n_classes)
-    start = 0
-    for i in range(n_batches):
-        P = P_tensor[start:start + batch_size, :, :]
-        M = mask[start:start + batch_size, :, :]
-        Ptime = P_time_tensor[:, start:start + batch_size]
-        if P_static_tensor is not None:
-            Pstatic = P_static_tensor[start:start + batch_size]
-        real_time = torch.sum(Ptime > 0, dim=0)
-        middleoutput = model.forward(P, Ptime.permute(1, 0).unsqueeze(-1), real_time, Pstatic, M)
-        out[start:start + batch_size] = middleoutput.detach().cpu()
-        start += batch_size
-    if rem > 0:
-        P = P_tensor[start:start + rem, :, :]
-        M = mask[start:start + rem, :, :]
-        Ptime = P_time_tensor[:, start:start + rem]
-        if P_static_tensor is not None:
-            Pstatic = P_static_tensor[start:start + batch_size]
-        real_time = torch.sum(Ptime > 0, dim=0)
-        whatever = model.forward(P, Ptime.permute(1, 0).unsqueeze(-1), real_time, Pstatic, M)
-        out[start:start + rem] = whatever.detach().cpu()
+    lengths = torch.sum(P_time_tensor > 0, dim=0)
+    out, _, _ = model.forward(P_tensor, P_static_tensor, P_time_tensor, lengths)
     return out
