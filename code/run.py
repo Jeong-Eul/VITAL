@@ -79,7 +79,7 @@ if __name__ == '__main__':
 
     arch = 'ehrtimellm'
     model_path = '../models/'
-    args.batch_size = 32
+    args.batch_size = 128
     dataset = args.dataset
     print('Dataset used: ', dataset)
 
@@ -250,10 +250,6 @@ if __name__ == '__main__':
                     Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)
                     Ptest_tensor[:, :, idx] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)
 
-            # Ptrain_tensor = Ptrain_tensor.permute(1, 0, 2) # Time, N_patient, Nvariable + Nmask
-            # Pval_tensor = Pval_tensor.permute(1, 0, 2)
-            # Ptest_tensor = Ptest_tensor.permute(1, 0, 2)
-
             Ptrain_time_tensor = Ptrain_time_tensor.squeeze(2).permute(1, 0) # Time, N_patient
             Pval_time_tensor = Pval_time_tensor.squeeze(2).permute(1, 0)
             Ptest_time_tensor = Ptest_time_tensor.squeeze(2).permute(1, 0)
@@ -355,6 +351,7 @@ if __name__ == '__main__':
                         train_y = y.cpu().detach().numpy()
                         train_auroc = roc_auc_score(train_y, train_probs[:, 1])
                         train_auprc = average_precision_score(train_y, train_probs[:, 1])
+                        
                     elif dataset == 'PAM':
                         train_probs = torch.squeeze(nn.functional.softmax(outputs, dim=1))
                         train_probs = train_probs.cpu().detach().numpy()
@@ -368,7 +365,7 @@ if __name__ == '__main__':
                                 try:
                                     train_auroc = roc_auc_score(one_hot(train_y), train_probs)
                                 except: 
-                                    train_auroc = float(0.5)  # 기본값 설정
+                                    train_auroc = float(0.5)
                         except ValueError as e:
                             print("Error in ROC AUC calculation:", e)
                             train_auroc = float(0.5)
@@ -381,13 +378,12 @@ if __name__ == '__main__':
                                 try:
                                     train_auprc = average_precision_score(one_hot(train_y), train_probs)
                                 except:
-                                    train_auroc = float(0.5)  # 기본값 설정
+                                    train_auroc = float(0.5) 
                         except ValueError as e:
                             print("Error in AUPRC calculation:", e)
                             train_auprc = float(0.5)
                         
-                        # train_auroc = roc_auc_score(one_hot(train_y), train_probs)
-                        # train_auprc = average_precision_score(one_hot(train_y), train_probs)
+                        
 
                     if wandb:
                         wandb.log({"train_loss": loss.item(), "train_auprc": train_auprc, "train_auroc": train_auroc})
@@ -478,7 +474,6 @@ if __name__ == '__main__':
                     print('classification report', classification_report(ytest, ypred))
                     print(confusion_matrix(ytest, ypred, labels=list(range(args.n_classes))))
                 
-                
                 # store
                 acc_arr[k, m] = acc * 100
                 auprc_arr[k, m] = aupr * 100
@@ -489,6 +484,7 @@ if __name__ == '__main__':
                     F1_arr[k, m] = F1 * 100
                 if wandb:
                     wandb.finish()
+                    
         # pick best performer for each split based on max AUPRC
         idx_max = np.argmax(auprc_arr, axis=1)
         acc_vec = [acc_arr[k, idx_max[k]] for k in range(n_splits)]
@@ -519,9 +515,3 @@ if __name__ == '__main__':
             print('Precision = %.1f +/- %.1f' % (mean_precision, std_precision))
             print('Recall    = %.1f +/- %.1f' % (mean_recall, std_recall))
             print('F1        = %.1f +/- %.1f' % (mean_F1, std_F1))
-
-        # Mark the run as finished
-        
-
-        # # save in numpy file
-        # np.save('./results/' + arch + '_phy12_setfunction.npy', [acc_vec, auprc_vec, auroc_vec])
