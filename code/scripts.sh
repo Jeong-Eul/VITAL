@@ -18,7 +18,7 @@ comment='EHRTimeLLM'
 
 accelerate launch --config_file /home/DAHS2/.cache/huggingface/accelerate/default_config.yaml --num_processes 2 run.py \
   --dataset P19 \
-  --n_heads 8 \
+  --n_heads 6 \
   --llm_model GPT2 \
   --d_model $d_model \
   --d_ff $d_ff \
