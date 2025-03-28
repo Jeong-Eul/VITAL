@@ -88,7 +88,7 @@ if __name__ == '__main__':
     cudnn.deterministic = True
     random.seed(9492)
 
-    arch = 'seed_7'
+    arch = 'seed_9492'
     model_path = '../models/'
     
     args.batch_size = 128
