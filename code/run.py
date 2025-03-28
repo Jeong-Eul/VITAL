@@ -1,4 +1,4 @@
-"""Here is an initial version of the proposed EHRTimeLLM model. The scripts will be further refined in the future, after paper acceptance. """
+"""Here is an initial version of the proposed model. The scripts will be further refined in the future, after paper acceptance. """
 
 import os
 import random
@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.backends.cudnn as cudnn
 import time
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix, average_precision_score, precision_score, recall_score, f1_score
 from model_ehr import *
@@ -36,7 +37,7 @@ def initialize_distributed():
 if __name__ == '__main__':
     
     freeze_support()
-    torch.manual_seed(1)
+    # torch.manual_seed(1)
     atexit.register(cleanup)
     initialize_distributed()
     
@@ -47,11 +48,11 @@ if __name__ == '__main__':
 
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAM']) #
+    parser.add_argument('--dataset', type=str, default='P19', choices=['P12', 'P19', 'eICU', 'PAM']) #
     parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
     parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
     parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
-    parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
+    parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample', 'lab'],
                         help='use this only when splittype==random; otherwise, set as no_removal') #
     parser.add_argument('--predictive_label', type=str, default='mortality', choices=['mortality', 'LoS'],
                         help='use this only with P12 dataset (mortality or length of stay)')
@@ -72,13 +73,24 @@ if __name__ == '__main__':
     
     args, unknown = parser.parse_known_args()
     
-    torch.manual_seed(1)
+    # torch.manual_seed(1)
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
     torch.cuda.synchronize()
+    
+    # set seed
+    
+    torch.manual_seed(9492)
+    torch.cuda.manual_seed(9492)
+    torch.cuda.manual_seed_all(9492)
+    np.random.seed(9492)
+    cudnn.benchmark = False
+    cudnn.deterministic = True
+    random.seed(9492)
 
-    arch = 'ehrtimellm'
+    arch = 'seed_7'
     model_path = '../models/'
+    
     args.batch_size = 128
     dataset = args.dataset
     print('Dataset used: ', dataset)
@@ -93,7 +105,7 @@ if __name__ == '__main__':
     baseline = False  # always False for Raindrop
     split = args.splittype  # possible values: 'random', 'age', 'gender'
     reverse = args.reverse  # False or True
-    feature_removal_level = args.feature_removal_level  # 'set', 'sample'
+    feature_removal_level = args.feature_removal_level  # 'set', 'sample', 'lab
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=4, deepspeed_plugin=None)
     
@@ -170,9 +182,10 @@ if __name__ == '__main__':
         precision_arr = np.zeros((n_splits, n_runs))
         recall_arr = np.zeros((n_splits, n_runs))
         F1_arr = np.zeros((n_splits, n_runs))
-        # for k in range(n_splits):
-        custom = [0, 1, 2, 3, 4]
-        for k in custom:
+        for k in range(n_splits):
+        # # custom = [4]
+        # custom = [1]
+        # for k in custom:
             split_idx = k + 1
             
             print('Split id: %d' % split_idx)
@@ -187,11 +200,11 @@ if __name__ == '__main__':
                 split_path = '/splits/PAMAP2_split_' + str(split_idx) + '.npy'
                 
             if wandb:
-                # wandb.login(key=str('0126f71b25a3ecd1e32ed0a83047073475ee9cea'))
+                # wandb.login(key=str('0126f71b25a3ecd1e32ed0a830470s73475ee9cea'))
                 # config = wandb.config
                 wandb.init(name=f'P19-EXP'+ str(split_idx),
                            project='EHRTimeLLM-refined', 
-                           config={'Learning Rate':learning_rate, "LLM": args.llm_model, "d_ff": args.d_ff, "d_model": args.d_model,"Heads": args.n_heads})
+                            config={'Learning Rate':learning_rate, "LLM": args.llm_model, "d_ff": args.d_ff, "d_model": args.d_model,"Heads": args.n_heads})
 
             # prepare the data:
             Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path, split_type=split, reverse=reverse,
@@ -245,7 +258,17 @@ if __name__ == '__main__':
                         patient[:, idx] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)
                         Ptest_tensor[i] = patient
                 elif feature_removal_level == 'set':
+                    print('leave sensors out set')
                     density_score_indices = np.load('./baselines/saved/IG_density_scores_' + dataset + '.npy', allow_pickle=True)[:, 0]
+                    idx = density_score_indices[:num_missing_features].astype(int)
+                    Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)
+                    Ptest_tensor[:, :, idx] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)
+                
+                elif feature_removal_level == 'lab':
+                    print('leave sensors out lab')
+                    num_all_lab_features = len(args.lab)
+                    num_missing_features = round(missing_ratio * num_all_lab_features)
+                    density_score_indices = np.load('./baselines/saved/lab_arr_' + dataset + '.npy', allow_pickle=True)
                     idx = density_score_indices[:num_missing_features].astype(int)
                     Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)
                     Ptest_tensor[:, :, idx] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)
@@ -303,7 +326,9 @@ if __name__ == '__main__':
                 start = time.time()
                 if wandb:
                     wandb.watch(model)
+                    
                 for epoch in range(num_epochs):
+                    
                     model.train()
                     start_epoch = time.time()
                     if strategy == 2:
@@ -341,6 +366,7 @@ if __name__ == '__main__':
                             accelerator.backward(loss)
                             optimizer.step()
                             optimizer.zero_grad()
+                            
                     end_epoch = time.time()
                     accelerator.wait_for_everyone()
                     
@@ -439,8 +465,10 @@ if __name__ == '__main__':
 
                 """testing"""
                 print('Start Testing')
-                model.load_state_dict(torch.load(model_path + arch + '_' + str(split_idx) + '.pt'))
-                model = accelerator.prepare(model)
+     
+                # model.load_state_dict(torch.load(model_path + arch + '_' + str(split_idx) + '.pt'))
+                # model = accelerator.prepare(model)
+            
                 print('Inference ready')
                 model.eval()
                 with torch.no_grad():
