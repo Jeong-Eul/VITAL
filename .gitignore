@@ -1,7 +1,14 @@
 /Visualization.ipynb
 /tokenlearner_feature_mixing.ipynb
+/research_auxiliaryif.ipynb
+/utils.py
 /P19data
 /P12data
+/__pycache__
+/code/__pycache__
+/PAMdata
 /code/wandb
 /models/P12_checkpoint/checkpoint
+/code/run_onlyonegpu.py
 /models/P19_checkpoint/checkpoint
+/home/DAHS2/EHRTimeLLM/code/patient_embedding
