@@ -284,7 +284,7 @@ def random_sample(idx_0, idx_1, B, replace=False):
     return idx
 
 
-def evaluate(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, batch_size=30, n_classes=2, static=1):
+def evaluate(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, batch_size=128, n_classes=2, static=1):
     model.eval()
     P_tensor = P_tensor[:, :, :int(P_tensor.shape[2] / 2)].to(accelerator.device)
     P_time_tensor = P_time_tensor.to(accelerator.device) 
@@ -326,7 +326,7 @@ def evaluate(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask,
     return out
 
 
-def evaluate_standard(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, batch_size=30, n_classes=2, static=1):
+def evaluate_standard(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, batch_size=128, n_classes=2, static=1):
     model.eval()
     P_tensor = P_tensor[:, :, :int(P_tensor.shape[2] / 2)].to(accelerator.device)
     P_time_tensor = P_time_tensor.to(accelerator.device) 
@@ -361,3 +361,82 @@ def evaluate_standard(accelerator, model, P_tensor, P_time_tensor, P_static_tens
         whatever = model.forward(P, Ptime.permute(1, 0).unsqueeze(-1), real_time, Pstatic, M)
         out[start:start + rem] = whatever.detach().cpu()
     return out
+
+
+def evaluate_v2(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, length, batch_size=30, n_classes=2, static=1):
+    model.eval()
+    P_tensor = P_tensor[:, :, :int(P_tensor.shape[2] / 2)].to(accelerator.device)
+    P_time_tensor = P_time_tensor.to(accelerator.device) 
+    mask = mask.to(accelerator.device)
+    if static is None:
+        Pstatic = None
+    else:
+        P_static_tensor = P_static_tensor.to(accelerator.device)
+        N, Fs = P_static_tensor.shape
+
+    N, T, Ff = P_tensor.shape
+    n_batches, rem = N // batch_size, N % batch_size
+    labout = torch.zeros(N, length, 32)
+    start = 0
+    for i in range(n_batches):
+        P = P_tensor[start:start + batch_size, :, :]
+        M = mask[start:start + batch_size, :, :]
+        Ptime = P_time_tensor[:, start:start + batch_size]
+        if P_static_tensor is not None:
+            Pstatic = P_static_tensor[start:start + batch_size]
+        real_time = torch.sum(Ptime > 0, dim=0)
+        _, laboutput = model.forward(P, Ptime.permute(1, 0).unsqueeze(-1), real_time, Pstatic, M)
+        labout[start:start + batch_size] = laboutput.detach().cpu()
+        start += batch_size
+    if rem > 0:
+        P = P_tensor[start:start + rem, :, :]
+        M = mask[start:start + rem, :, :]
+        Ptime = P_time_tensor[:, start:start + rem]
+        if P_static_tensor is not None:
+            Pstatic = P_static_tensor[start:start + batch_size]
+        # 데이터가 유효한지 확인
+        if P.shape[0] == 0 or M.shape[0] == 0:
+            print('dd')
+            return labout  # 빈 배치가 있는 경우 이미 처리한 결과 반환    
+        
+        real_time = torch.sum(Ptime > 0, dim=0)
+        _, whatever = model.forward(P, Ptime.permute(1, 0).unsqueeze(-1), real_time, Pstatic, M)
+        labout[start:start + rem] = whatever.detach().cpu()
+    return labout
+
+
+def evaluate_standard_v2(accelerator, model, P_tensor, P_time_tensor, P_static_tensor, mask, length, batch_size=30, n_classes=2, static=1):
+    model.eval()
+    P_tensor = P_tensor[:, :, :int(P_tensor.shape[2] / 2)].to(accelerator.device)
+    P_time_tensor = P_time_tensor.to(accelerator.device) 
+    mask = mask.to(accelerator.device)
+    if static is None:
+        Pstatic = None
+    else:
+        P_static_tensor = P_static_tensor.to(accelerator.device)
+        N, Fs = P_static_tensor.shape
+
+    N, T, Ff = P_tensor.shape
+    n_batches, rem = N // batch_size, N % batch_size
+    labout = torch.zeros(N, length, 32)
+    start = 0
+    for i in range(n_batches):
+        P = P_tensor[start:start + batch_size, :, :]
+        M = mask[start:start + batch_size, :, :]
+        Ptime = P_time_tensor[:, start:start + batch_size]
+        if P_static_tensor is not None:
+            Pstatic = P_static_tensor[start:start + batch_size]
+        real_time = torch.sum(Ptime > 0, dim=0)
+        _, laboutput = model.forward(P, Ptime.permute(1, 0).unsqueeze(-1), real_time, Pstatic, M)
+        labout[start:start + batch_size] = laboutput.detach().cpu()
+        start += batch_size
+    if rem > 0:
+        P = P_tensor[start:start + rem, :, :]
+        M = mask[start:start + rem, :, :]
+        Ptime = P_time_tensor[:, start:start + rem]
+        if P_static_tensor is not None:
+            Pstatic = P_static_tensor[start:start + batch_size]
+        real_time = torch.sum(Ptime > 0, dim=0)
+        _, whatever = model.forward(P, Ptime.permute(1, 0).unsqueeze(-1), real_time, Pstatic, M)
+        labout[start:start + rem] = whatever.detach().cpu()
+    return labout
