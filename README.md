@@ -50,7 +50,7 @@ This repository is replication of VITAL....
 <img src="./figures/Figure3.png" height = "360" alt="" align=center />
 </p>
 
-- Time-LLM comprises three key components: (1) Vital sign embedding: vital signs are reprogrammed into the language modality and fed into a pre-trained LLM, and (2) Lab embedding: each lab test is embedded as either a representative value or learnable [Not Measured] token, depending on whether it was observed during the observation period. (3) Output projection: the vital sign and lab embeddings are concatenated and summarized into fixed-size vector for downstream tasks.
+- VITAL comprises three key components: (1) Vital sign embedding: vital signs are reprogrammed into the language modality and fed into a pre-trained LLM, and (2) Lab embedding: each lab test is embedded as either a representative value or learnable [Not Measured] token, depending on whether it was observed during the observation period. (3) Output projection: the vital sign and lab embeddings are concatenated and summarized into fixed-size vector for downstream tasks.
 
 ## Requirements
 Use python 3.9 from Anaconda
