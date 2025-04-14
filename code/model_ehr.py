@@ -16,9 +16,6 @@ transformers.logging.set_verbosity_error()
 
 import torch.nn as nn
 
-# 실험 설명: Left padding 하기
-# demographic 정보 통합 추가 코드는 modified로 라벨링 되어 있음
-
 def init_weights(m):
     if isinstance(m, nn.Linear):
         nn.init.xavier_uniform_(m.weight)
@@ -322,6 +319,59 @@ class Ehrtimellm(nn.Module):
                     trust_remote_code=True,
                     # local_files_only=False
                 )
+            
+        
+        elif configs.llm_model == 'BERT':
+            self.bert_config = BertConfig.from_pretrained('google-bert/bert-base-uncased')
+
+            self.bert_config.num_hidden_layers = configs.llm_layers
+            self.bert_config.output_attentions = True
+            self.bert_config.output_hidden_states = True
+            try:
+                self.llm_model = BertModel.from_pretrained(
+                    'google-bert/bert-base-uncased',
+                    trust_remote_code=True,
+                    # local_files_only=True,
+                    config=self.bert_config,
+                )
+            except EnvironmentError:  # downloads model from HF is not already done
+                print("Local model files not found. Attempting to download...")
+                self.llm_model = BertModel.from_pretrained(
+                    'google-bert/bert-base-uncased',
+                    trust_remote_code=True,
+                    # local_files_only=False,
+                    config=self.bert_config,
+                )
+
+            try:
+                self.tokenizer = BertTokenizer.from_pretrained(
+                    'google-bert/bert-base-uncased',
+                    trust_remote_code=True,
+                    # local_files_only=True
+                )
+            except EnvironmentError:  # downloads the tokenizer from HF if not already done
+                print("Local tokenizer files not found. Atempting to download them..")
+                self.tokenizer = BertTokenizer.from_pretrained(
+                    'google-bert/bert-base-uncased',
+                    trust_remote_code=True,
+                    # local_files_only=False
+                    )        
+
+            
+            try:
+                self.tokenizer = BertTokenizer.from_pretrained(
+                    'google-bert/bert-base-uncased',
+                    trust_remote_code=True
+                )
+            except EnvironmentError:
+                print("Local tokenizer files not found. Attempting to download them..")
+                self.tokenizer = BertTokenizer.from_pretrained(
+                    'google-bert/bert-base-uncased',
+                    trust_remote_code=True
+                )
+
+            print("BERT from scratch ready...")
+
         
         else:
             raise Exception('LLM model is not defined')
@@ -385,17 +435,17 @@ class Ehrtimellm(nn.Module):
         
         if self.static:
             emb = self.emb(demo) # B x d_ff modified
-       
+            
         # Missing value control
         input_ids = self.tokenizer.encode('missing', return_tensors='pt')
         mask_token = self.llm_model.get_input_embeddings()(input_ids.to(x_masked.device))
         mask_token = mask_token[0].to(x_masked.dtype)
-        # mask_token = mask_token[0][1].to(x_masked.device)
+        # mask_token = mask_token[0][1].to(x_masked.device) #-> activate if you use Llama
         
         # Padding token control 
         input_ids = self.tokenizer.encode(self.tokenizer.pad_token, return_tensors='pt')
         pad_token = self.llm_model.get_input_embeddings()(input_ids.to(x_masked.device))
-        # pad_token = pad_token[0][1].to(x_masked.device)
+        # pad_token = pad_token[0][1].to(x_masked.device) #-> activate if you use Llama
         pad_token = pad_token[0].to(x_masked.device)
 
         # Text Prototype
@@ -426,16 +476,17 @@ class Ehrtimellm(nn.Module):
         
         null_position = (result_tensor.sum(dim=-1) == 0)
         result_tensor[null_position] = mask_token.expand(null_position.sum(), -1)
+
         
         # LLM Body
-        chunk_size = 8
+        chunk_size = 8 # adjust along with your gpu memmory
         total_size = B*N_vital
         outputs = []
         
         for i in range(0, total_size, chunk_size):
             chunk_input = result_tensor[i : i + chunk_size]
             chunk_mask = attention_mask[i : i + chunk_size]
-            
+ 
             with torch.no_grad():
                 out = self.llm_model(inputs_embeds=chunk_input).hidden_states[-1]  # (chunk_size, seq_len, d_llm)
             last_outputs = out[:, -1]  # (chunk_size, d_llm), take last sequence
@@ -443,7 +494,7 @@ class Ehrtimellm(nn.Module):
             
         final_output = torch.cat(outputs, dim=0) # B*N_vital, d_llm
         
-        # Lab statistic embedding
+        # Lab statistic embedding 
         lab_stats = compute_statistics(x_lab)
         not_measured_mask = (lab_stats == 0).all(dim=1)
         
