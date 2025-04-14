@@ -19,3 +19,20 @@ AUPRC: 54.5 +/- 3.8
 AUROC: 86.0 +/- 1.4
 
 ----
+
+# exploiting variables that has missing ratio under 60% 
+
+Batch Size = 128, Learning Rate = 0.001, Epoch = 20, Early stopping patience = 3
+
+Testing: AUROC = 84.84 | AUPRC = 49.40 | Accuracy = 76.81
+Testing: AUROC = 88.52 | AUPRC = 61.10 | Accuracy = 81.48
+Testing: AUROC = 85.25 | AUPRC = 54.83 | Accuracy = 79.32
+Testing: AUROC = 86.18 | AUPRC = 55.30 | Accuracy = 75.90
+Testing: AUROC = 85.21 | AUPRC = 54.11 | Accuracy = 78.32
+
+AUPRC: 54.9 +/- 4.2
+AUROC: 86.0 +/- 1.5
+
+----
+
+
