@@ -175,10 +175,10 @@ class Classifier(nn.Module):
        
         return x
 
-class Ehrtimellm(nn.Module):
+class VITAL(nn.Module):
 
     def __init__(self, configs):
-        super(Ehrtimellm, self).__init__()
+        super(VITAL, self).__init__()
         self.seq_len = configs.seq_len
         self.d_ff = configs.d_ff
         self.d_llm = configs.llm_dim

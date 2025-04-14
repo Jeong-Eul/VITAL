@@ -1,4 +1,4 @@
-"""Here is an initial version of the proposed model. The scripts will be further refined in the future, after paper acceptance. """
+"""Here is an initial version of the VITAL. The scripts will be further refined in the future, after paper acceptance. """
 
 import os
 import random
@@ -88,7 +88,7 @@ if __name__ == '__main__':
     cudnn.deterministic = True
     random.seed(9492)
 
-    arch = 'seed_9492'
+    arch = 'scratch_p12'
     model_path = '../models/'
     
     args.batch_size = 128
@@ -146,7 +146,8 @@ if __name__ == '__main__':
             args.d_static = 9
             args.enc_in = 36
             args.static_info = 1
-            args.vital = [8, 14, 21, 22, 30] # 순서대로 DBP, HR, NDBP, NMAP, SBP |  NSBP, MAP, RR은 EDA 결과 lab 만큼 희소해서 제외
+            # args.vital = [8, 14, 21, 22, 30]
+            args.vital = [8, 14, 29, 17] # missing ratio 60 이하
             args.lab = list(set(np.arange(args.enc_in)) - set(args.vital))
             
         elif dataset == 'P19':
@@ -183,8 +184,8 @@ if __name__ == '__main__':
         recall_arr = np.zeros((n_splits, n_runs))
         F1_arr = np.zeros((n_splits, n_runs))
         for k in range(n_splits):
-        # # custom = [4]
-        # custom = [1]
+        # # # custom = [4]
+        # custom = [0]
         # for k in custom:
             split_idx = k + 1
             
@@ -280,7 +281,7 @@ if __name__ == '__main__':
             for m in range(n_runs):
                 print('- - Run %d - -' % (m + 1))
 
-                model = Ehrtimellm(args)
+                model = VITAL(args)
      
                 trained_parameters = []
                 for p in model.parameters():
@@ -294,7 +295,7 @@ if __name__ == '__main__':
                                                                     cooldown=0, min_lr=1e-8, eps=1e-08, verbose=True)
                 
                 model, optimizer, scheduler = accelerator.prepare(model, optimizer, scheduler)
-
+                
                 idx_0 = np.where(ytrain == 0)[0]
                 idx_1 = np.where(ytrain == 1)[0]
 
@@ -326,7 +327,8 @@ if __name__ == '__main__':
                 start = time.time()
                 if wandb:
                     wandb.watch(model)
-                    
+                                
+                                    
                 for epoch in range(num_epochs):
                     
                     model.train()
@@ -347,10 +349,11 @@ if __name__ == '__main__':
                         elif strategy == 3:
                             idx = np.random.choice(list(range(Ptrain_tensor.shape[1])), size=int(batch_size), replace=False)
                             # idx = random_sample_8(ytrain, batch_size)   # to balance dataset
-
+                        
                         if dataset == 'P12' or dataset == 'P19':
                             P, Ptime, Pstatic, y, mask = Ptrain_tensor[idx, :, :int(Ptrain_tensor.shape[2] / 2)].to(accelerator.device), Ptrain_time_tensor[:, idx].to(accelerator.device), \
                                                 Ptrain_static_tensor[idx].to(accelerator.device), ytrain_tensor[idx].to(accelerator.device), train_paddimg_mask[idx].to(accelerator.device)
+                            
                         elif dataset == 'PAM':
                             
                             P, Ptime, Pstatic, y, mask = Ptrain_tensor[idx, :, :int(Ptrain_tensor.shape[2] / 2)].to(accelerator.device), Ptrain_time_tensor[:, idx].to(accelerator.device), \
