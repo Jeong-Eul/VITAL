@@ -88,7 +88,7 @@ if __name__ == '__main__':
     cudnn.deterministic = True
     random.seed(9492)
 
-    arch = 'scratch_p12'
+    arch = 'VITAL'
     model_path = '../models/'
     
     args.batch_size = 128
@@ -146,8 +146,7 @@ if __name__ == '__main__':
             args.d_static = 9
             args.enc_in = 36
             args.static_info = 1
-            # args.vital = [8, 14, 21, 22, 30]
-            args.vital = [8, 14, 29, 17] # missing ratio 60 이하
+            args.vital = [8, 14, 21, 22, 30]
             args.lab = list(set(np.arange(args.enc_in)) - set(args.vital))
             
         elif dataset == 'P19':
@@ -184,9 +183,6 @@ if __name__ == '__main__':
         recall_arr = np.zeros((n_splits, n_runs))
         F1_arr = np.zeros((n_splits, n_runs))
         for k in range(n_splits):
-        # # # custom = [4]
-        # custom = [0]
-        # for k in custom:
             split_idx = k + 1
             
             print('Split id: %d' % split_idx)
