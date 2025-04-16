@@ -8,9 +8,11 @@
 
 <div align="center">
 
-**[<a href="https://arxiv.org/abs/2310.01728">Paper Page</a>]**
+
+<!-- **[<a href="https://arxiv.org/abs/2310.01728">Paper Page</a>]**
 **[<a href="https://datascience0321.tistory.com/46">Blog</a>]**
 
+-->
 
 </div>
 
